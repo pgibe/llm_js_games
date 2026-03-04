@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <title>Brick Breaker JS</title>
+    <style>
+        body { background: #222; color: white; display: flex; flex-direction: column; align-items: center; font-family: sans-serif; }
+        canvas { background: #000; border: 3px solid #555; display: block; }
+        #ui { width: 500px; display: flex; justify-content: space-between; padding: 10px; font-size: 20px; background: #333; }
+        .label { font-weight: bold; color: #ffcc00; }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas" width="500" height="800"></canvas>
+    
+    <div id="ui">
+        <div>Vite: <span id="lives" class="label">3</span></div>
+        <div>Punti: <span id="score" class="label">0</span></div>
+        <div>Livello: <span id="level" class="label">1</span></div>
+    </div>
+
+    <script src="brick_breaker.js"></script>
+</body>
+</html>
