@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solitario Mahjong Semplificato</title>
+    <!-- Caricamento di Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Stile di base per il corpo */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        canvas {
+            background-color: #f0f0f0;
+            border-radius: 8px;
+            /* Un leggero bagliore per il tavolo da gioco */
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body class="bg-gray-800 text-gray-100 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-6xl mx-auto">
+        <h1 class="text-3xl font-bold text-center mb-4 text-white">Solitario Mahjong Semplificato</h1>
+
+        <!-- Controlli di Gioco -->
+        <div class="flex justify-center gap-4 mb-4">
+            <button id="initButton" class="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 transition-colors">
+                Inizia Nuovo Gioco
+            </button>
+            <button id="shuffleButton" class="px-6 py-2 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 transition-colors">
+                Mescola Tessere Rimaste
+            </button>
+        </div>
+
+        <!-- Canvas per il Gioco -->
+        <div class="w-full h-[800px] flex justify-center">
+            <canvas id="mahjongCanvas" width="1200" height="800"></canvas>
+        </div>
+    </div>
+
+    <script type="module">
+        // --- CONFIGURAZIONE DI GIOCO ---
+
+        // Palette di base (come da richiesta, rimosso alpha per parsing)
+        const BASE_PALETTE = [
+            '#f94144', '#f3722c', '#f8961e', '#f9c74f', 
+            '#90be6d', '#43aa8b', '#577590'
+        ];
+
+        // Dimensioni configurabili dei set
+        const DIM_DOTS = 5;
+        const DIM_BAMBOO = 5;
+        const DIM_CHARACTERS = 5;
+        const DIM_WINDS = 4;
+        const DIM_DRAGONS = 3;
+        const DIM_FLOWERS = 1;
+        const DIM_SEASONS = 1;
+
+        // Numero di ripetizioni per ogni tessera (coppie)
+        const SET_MULTIPLIER = 2;
+
+        // Dimensioni delle tessere
+        const TILE_HEIGHT = 150; // Altezza
+        const GOLDEN_RATIO = 1.618;
+        const TILE_WIDTH = Math.round(TILE_HEIGHT / GOLDEN_RATIO); // Larghezza
+
+        // Configurazione disegno
+        const LEVEL_OFFSET = 5;       // Spostamento per livello (5px su e 5px dx)
+        const BORDER_SHADOW = 3;      // Bordo nero aggiuntivo (ombra)
+        const BORDER_HIGHLIGHT = 1;   // Bordo bianco
+        const BORDER_MAIN = 1;        // Bordo nero principale
+        const BORDER_SELECT = 2;      // Bordo giallo di selezione
+
+        // --- VARIABILI DI STATO ---
+        let canvas, ctx;
+        let tiles = []; // Array di tutte le tessere
+        let selectedTile = null; // Tessera attualmente selezionata
+        let gameArea = {}; // Area dove le tessere possono essere piazzate
+
+        // --- INIZIALIZZAZIONE ---
+
+        window.addEventListener('DOMContentLoaded', () => {
+            canvas = document.getElementById('mahjongCanvas');
+            if (!canvas) {
+                console.error("Canvas non trovato!");
+                return;
+            }
+            ctx = canvas.getContext('2d');
+
+            // Calcola l'area di gioco
+            gameArea = {
+                x: 50,
+                y: 50,
+                width: canvas.width - 100 - TILE_WIDTH,
+                height: canvas.height - 100 - TILE_HEIGHT
+            };
+
+            // Collega i bottoni
+            document.getElementById('initButton').addEventListener('click', initGame);
+            document.getElementById('shuffleButton').addEventListener('click', shuffleRemainingTiles);
+
+            // *** CORREZIONE: SPOSTATO L'EVENT LISTENER QUI DENTRO ***
+            // Ora viene aggiunto solo dopo che il canvas è stato caricato
+            canvas.addEventListener('click', handleCanvasClick);
+
+            // Avvia il gioco
+            initGame();
+        });
+
+        /**
+         * Inizializza una nuova partita
+         */
+        function initGame() {
+            console.log("Inizio nuovo gioco...");
+            selectedTile = null;
+            tiles = createTiles();
+            distributeTiles(tiles);
+            drawGame();
+        }
+
+        /**
+         * Mescola solo le tessere rimanenti
+         */
+        function shuffleRemainingTiles() {
+            if (checkWin()) {
+                console.log("Gioco già vinto, inizio uno nuovo.");
+                initGame();
+                return;
+            }
+            
+            console.log("Mescolo tessere...");
+            selectedTile = null;
+            
+            // Filtra solo le tessere non abbinate
+            const remainingTiles = tiles.filter(t => !t.isMatched);
+            // Estrai le tessere già abbinate
+            const matchedTiles = tiles.filter(t => t.isMatched);
+
+            // Ridistribuisci solo le tessere rimanenti
+            distributeTiles(remainingTiles);
+
+            // Ricombina gli array e riordina per Z-index
+            tiles = [...matchedTiles, ...remainingTiles];
+            tiles.sort((a, b) => a.z - b.z);
+            
+            drawGame();
+        }
+
+
+        // --- CREAZIONE TESSERE ---
+
+        /**
+         * Genera l'array completo di tessere
+         */
+        function createTiles() {
+            const allTiles = [];
+            let idCounter = 0;
+
+            const sets = [
+                { name: 'Dots', count: DIM_DOTS, color: BASE_PALETTE[0] },
+                { name: 'Bamboo', count: DIM_BAMBOO, color: BASE_PALETTE[1] },
+                { name: 'Characters', count: DIM_CHARACTERS, color: BASE_PALETTE[2] },
+                { name: 'Winds', count: DIM_WINDS, color: BASE_PALETTE[3] },
+                { name: 'Dragons', count: DIM_DRAGONS, color: BASE_PALETTE[4] },
+                { name: 'Flowers', count: DIM_FLOWERS, color: BASE_PALETTE[5] },
+                { name: 'Seasons', count: DIM_SEASONS, color: BASE_PALETTE[6] }
+            ];
+
+            for (const set of sets) {
+                for (let j = 1; j <= set.count; j++) {
+                    // Calcola la gradazione. 0 = colore base, 1 = più chiaro
+                    const lightness = set.count > 1 ? (j - 1) / (set.count - 1) : 0;
+                    // Applica una gradazione massima del 60% per mantenere il colore
+                    const finalColor = lightenColor(set.color, lightness * 0.6); 
+
+                    // Questo ID determina l'abbinamento
+                    const matchId = `${set.name}_${finalColor}`;
+
+                    for (let k = 0; k < SET_MULTIPLIER; k++) {
+                        allTiles.push({
+                            id: idCounter++,
+                            set: set.name,
+                            value: j,
+                            color: finalColor,
+                            matchId: matchId, // Per l'abbinamento
+                            x: 0, y: 0, z: 0, // Posizione (z = livello)
+                            isMatched: false,
+                            isSelected: false
+                        });
+                    }
+                }
+            }
+            return allTiles;
+        }
+
+        /**
+         * Distribuisce le tessere casualmente nell'area di gioco
+         * @param {Array} tileArray L'array di tessere da distribuire
+         */
+        function distributeTiles(tileArray) {
+            shuffleArray(tileArray); // Mescola per posizionamento casuale
+
+            const minLevels = 3;
+
+            tileArray.forEach(tile => {
+                // Assegna un livello (z-index) casuale, min 3 livelli
+                tile.z = Math.floor(Math.random() * minLevels);
+                
+                // Posizione X e Y casuale nell'area di gioco
+                const randomX = gameArea.x + Math.random() * gameArea.width;
+                const randomY = gameArea.y + Math.random() * gameArea.height;
+
+                // Applica l'offset in base al livello
+                // Sposta a destra e in alto
+                tile.x = Math.round(randomX + tile.z * LEVEL_OFFSET);
+                tile.y = Math.round(randomY - tile.z * LEVEL_OFFSET);
+
+                // Resetta lo stato
+                tile.isMatched = false;
+                tile.isSelected = false;
+            });
+
+            // Riordina l'array per Z-index per disegnare dal basso verso l'alto
+            tiles.sort((a, b) => a.z - b.z);
+        }
+
+        // --- LOGICA DI GIOCO (CLICK) ---
+
+        /**
+         * Gestore per l'evento click sul canvas
+         */
+        function handleCanvasClick(e) {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            let targetTile = null;
+
+            // Cerca la tessera cliccata, partendo dalla più alta (cima dello stack)
+            // L'array 'tiles' è ordinato per Z, quindi iteriamo al contrario
+            for (let i = tiles.length - 1; i >= 0; i--) {
+                const tile = tiles[i];
+                if (tile.isMatched) continue; // Salta tessere già abbinate
+
+                // Controllo collisione (hitbox)
+                if (mouseX >= tile.x && mouseX <= tile.x + TILE_WIDTH &&
+                    mouseY >= tile.y && mouseY <= tile.y + TILE_HEIGHT) {
+                    
+                    // Trovata una tessera! È quella più in alto?
+                    // Controlliamo se è coperta da QUALCUN'ALTRA tessera
+                    if (!isCovered(tile)) {
+                        targetTile = tile; // Sì, è cliccabile!
+                        break; // Trovata la tessera cliccabile più in alto
+                    }
+                }
+            }
+
+            // Gestione della logica di selezione/abbinamento
+            if (targetTile) {
+                if (!selectedTile) {
+                    // Prima selezione
+                    selectedTile = targetTile;
+                    targetTile.isSelected = true;
+                } else {
+                    // Seconda selezione
+                    if (selectedTile.id === targetTile.id) {
+                        // Clic sulla stessa tessera: deseleziona
+                        selectedTile.isSelected = false;
+                        selectedTile = null;
+                    } else if (selectedTile.matchId === targetTile.matchId) {
+                        // Match trovato!
+                        selectedTile.isMatched = true;
+                        targetTile.isMatched = true;
+                        selectedTile = null; // Resetta la selezione
+                    } else {
+                        // Match fallito: deseleziona la vecchia, seleziona la nuova
+                        selectedTile.isSelected = false;
+                        selectedTile = targetTile;
+                        targetTile.isSelected = true;
+                    }
+                }
+            } else {
+                // Clic sul tavolo vuoto: deseleziona
+                if (selectedTile) {
+                    selectedTile.isSelected = false;
+                    selectedTile = null;
+                }
+            }
+
+            // Ridisegna tutto
+            drawGame();
+
+            // Controlla la vittoria
+            if (checkWin()) {
+                showWinMessage();
+            }
+        }
+
+        /**
+         * Controlla se una tessera è coperta da altre
+         * @param {object} tileToTest La tessera da controllare
+         */
+        function isCovered(tileToTest) {
+            for (const tile of tiles) {
+                if (tile.isMatched || tile.id === tileToTest.id) continue;
+
+                // Se un'altra tessera ha uno Z-index maggiore...
+                if (tile.z > tileToTest.z) {
+                    // ...controlliamo se si sovrappone (AABB collision)
+                    const r1 = { x: tileToTest.x, y: tileToTest.y, w: TILE_WIDTH, h: TILE_HEIGHT };
+                    const r2 = { x: tile.x, y: tile.y, w: TILE_WIDTH, h: TILE_HEIGHT };
+
+                    const isOverlapping = r1.x < r2.x + r2.w && 
+                                          r1.x + r1.w > r2.x && 
+                                          r1.y < r2.y + r2.h && 
+                                          r1.y + r1.h > r2.y;
+
+                    if (isOverlapping) {
+                        return true; // È coperta
+                    }
+                }
+            }
+            return false; // Non è coperta
+        }
+
+        /**
+         * Controlla se tutte le tessere sono state abbinate
+         */
+        function checkWin() {
+            return tiles.length > 0 && tiles.every(t => t.isMatched);
+        }
+
+        // --- FUNZIONI DI DISEGNO ---
+
+        /**
+         * Pulisce e ridisegna l'intero tavolo da gioco
+         */
+        function drawGame() {
+            if (!ctx) return; // Sicurezza
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // L'array è già ordinato per Z, quindi disegna in ordine
+            for (const tile of tiles) {
+                if (!tile.isMatched) {
+                    drawTile(tile);
+                }
+            }
+        }
+
+        /**
+         * Disegna una singola tessera, seguendo le specifiche
+         * @param {object} tile La tessera da disegnare
+         */
+        function drawTile(tile) {
+            const x = tile.x;
+            const y = tile.y;
+            const w = TILE_WIDTH;
+            const h = TILE_HEIGHT;
+
+            // 1. Ombra (3px nero, sinistra e sotto)
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(x, y, BORDER_SHADOW, h); // Sinistra
+            ctx.fillRect(x + BORDER_SHADOW, y + h - BORDER_SHADOW, w - BORDER_SHADOW, BORDER_SHADOW); // Sotto
+
+            // 2. Bordo bianco (1px, interno all'ombra)
+            const whiteX = x + BORDER_SHADOW;
+            const whiteY = y;
+            const whiteW = w - BORDER_SHADOW;
+            const whiteH = h - BORDER_SHADOW;
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(whiteX, whiteY, whiteW, whiteH);
+
+            // 3. Tessera principale (colore e bordo nero 1px)
+            const mainX = whiteX + BORDER_HIGHLIGHT;
+            const mainY = whiteY;
+            const mainW = whiteW - BORDER_HIGHLIGHT;
+            const mainH = whiteH - BORDER_HIGHLIGHT;
+            
+            // Colore di riempimento
+            ctx.fillStyle = tile.color;
+            ctx.fillRect(mainX, mainY, mainW, mainH);
+
+            // Bordo nero 1px
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = BORDER_MAIN;
+            ctx.strokeRect(mainX, mainY, mainW, mainH);
+
+            // 4. Testo (Codice colore e tipo)
+            ctx.fillStyle = '#000000'; // Colore testo
+            ctx.font = '14px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            // Scrive il codice colore
+            ctx.fillText(tile.color, mainX + mainW / 2, mainY + mainH / 2);
+            // Scrive il set e valore
+            ctx.font = '12px Arial';
+            ctx.fillText(`${tile.set} ${tile.value}`, mainX + mainW / 2, mainY + mainH / 2 + 20);
+
+            // 5. Selezione (Bordo giallo 2px)
+            if (tile.isSelected) {
+                ctx.strokeStyle = 'yellow';
+                ctx.lineWidth = BORDER_SELECT;
+                // Disegna il bordo sull'intera hitbox della tessera (ombra inclusa)
+                ctx.strokeRect(x, y, w, h);
+            }
+        }
+
+        /**
+         * Mostra il messaggio di vittoria
+         */
+        function showWinMessage() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 48px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('HAI VINTO!', canvas.width / 2, canvas.height / 2);
+
+            ctx.font = '24px Arial';
+            ctx.fillText('Clicca "Inizia Nuovo Gioco" per ricominciare.', canvas.width / 2, canvas.height / 2 + 50);
+        }
+
+        // --- UTILITY ---
+
+        /**
+         * Mescola un array (algoritmo di Fisher-Yates)
+         */
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+
+        /**
+         * Schiarisce un colore esadecimale di una certa percentuale
+         * @param {string} hex Colore esadecimale (es. #RRGGBB)
+         * @param {number} amount Percentuale (0.0 - 1.0)
+         */
+        function lightenColor(hex, amount) {
+            // Rimuove l'hash se presente
+            hex = hex.replace(/^#/, '');
+            
+            // Converte in RGB
+            let r = parseInt(hex.substring(0, 2), 16);
+            let g = parseInt(hex.substring(2, 4), 16);
+            let b = parseInt(hex.substring(4, 6), 16);
+
+            // Calcola la nuova tonalità (interpolazione lineare verso il bianco)
+            r = Math.min(255, Math.floor(r + (255 - r) * amount));
+            g = Math.min(255, Math.floor(g + (255 - g) * amount));
+            b = Math.min(255, Math.floor(b + (255 - b) * amount));
+
+            // Riconverte in esadecimale
+            const toHex = (c) => ('0' + c.toString(16)).slice(-2);
+            return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+        }
+
+    </script>
+</body>
+</html>
+
