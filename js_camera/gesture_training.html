@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <title>Don Bosco AI Training Lab</title>
+    <script src="p5.min.js"></script>
+    <script src="ml5.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #121212; color: white; text-align: center; margin: 0; padding: 20px; }
+		a {color: #84b4df;}
+        .container { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; }
+        #canvas-holder { border: 5px solid #333; background: #000; box-shadow: 0 4px 15px rgba(0,0,0,0.5); border-radius: 8px; }
+        .controls { background: #1e1e1e; padding: 20px; border-radius: 10px; width: 340px; text-align: left; }
+		#credits {margin-top:auto; padding-top: 10px;}
+        
+        button { width: 100%; padding: 12px; margin: 8px 0; cursor: pointer; border: none; border-radius: 5px; font-weight: bold; }
+        .btn-a { background: #e91e63; color: white; }
+        .btn-b { background: #00bcd4; color: white; }
+        .btn-train { background: #4caf50; color: white; }
+        .btn-reset { background: #555; color: white; margin-top: 10px; }
+        
+        #progress-container { width: 100%; background-color: #333; border-radius: 10px; margin: 15px 0; height: 10px; overflow: hidden; display:none; }
+        #progress-bar { width: 0%; height: 100%; background-color: #4caf50; }
+        #result { font-size: 1.2em; margin-top: 10px; padding: 10px; border-radius: 8px; text-align: center; border: 2px dashed #444; }
+    </style>
+</head>
+<body>
+
+    <h1>Don Bosco AI Training Lab: Inside the Network</h1>
+    <p id="loading-msg">Caricamento modelli...</p>
+
+    <div class="container">
+        <div id="canvas-holder"></div>
+
+        <div class="controls">
+            <h3>1. Campioni</h3>
+            <button class="btn-a" id="btnA">Gesto Rosso: <span id="cA">0</span></button>
+            <button class="btn-b" id="btnB">Gesto Azzurro: <span id="cB">0</span></button>
+            
+            <h3>2. Training</h3>
+            <div id="epoch-txt">Epoca: 0 / 20</div>
+            <div id="progress-container"><div id="progress-bar"></div></div>
+            <button class="btn-train" id="trainBtn" disabled>AVVIA ADDESTRAMENTO</button>
+            
+            <div id="result">In attesa...</div>
+            <button class="btn-reset" id="resetBtn">RESET</button>
+        </div>
+		
+    </div>
+	<div id="credits">
+		<br><i>Credits:</i><br><br>
+		<a href="https://gemini.google.com">Gemini Pro</a><br>
+		<a href="https://ml5js.org/">ml5.js</a>, libreria JavaScript per il Machine Learning basata su TensorFlow.js --&gt; Scaricare <a href="https://unpkg.com/ml5@0.12.2/dist/ml5.min.js">qui</a><br>
+		<a href="https://p5js.org/">p5.js</a>, framework JavaScript --&gt; Scaricare <a href="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.min.js">qui</a>
+	</div>
+
+<script>
+let featureExtractor, classifier, video;
+let countA = 0, countB = 0, isClassifying = false;
+let currentLabel = "";
+let currentConf = 0;
+const TOTAL_EPOCHS = 20;
+let iterations = 0;
+
+function setup() {
+    // Canvas largo per ospitare video e rete side-by-side
+    const canvas = createCanvas(800, 400);
+    canvas.parent('canvas-holder');
+
+    video = createCapture(VIDEO);
+    video.size(400, 300);
+    video.hide();
+
+    featureExtractor = ml5.featureExtractor('MobileNet', { epochs: TOTAL_EPOCHS }, () => {
+        document.getElementById('loading-msg').innerText = "Modello Pronto!";
+        document.getElementById('trainBtn').disabled = false;
+    });
+    classifier = featureExtractor.classification(video);
+    setupButtons();
+}
+
+function draw() {
+    background(20);
+    
+    // 1. DISEGNO VIDEO (MIRROR)
+    push();
+    translate(400, 0);
+    scale(-1, 1);
+    image(video, 0, 50, 400, 300);
+    pop();
+    
+    // 2. DISEGNO RETE NEURALE (A DESTRA)
+    drawNetwork(450, 50, 320, 300);
+    
+    // Titoli
+    fill(255); noStroke(); textAlign(CENTER);
+    text("INPUT (Webcam)", 200, 30);
+    text("DENSE LAYERS (Training)", 610, 30);
+}
+
+function drawNetwork(x, y, w, h) {
+    let layers = [5, 4, 2]; // Nodi per ogni layer (Semplificato)
+    let layerX = [x, x + w/2, x + w];
+    let nodesPos = [];
+
+    // Calcola posizioni nodi
+    for (let i = 0; i < layers.length; i++) {
+        let layerNodes = [];
+        let spacing = h / (layers[i] + 1);
+        for (let j = 0; j < layers[i]; j++) {
+            layerNodes.push({ x: layerX[i], y: y + spacing * (j + 1) });
+        }
+        nodesPos.push(layerNodes);
+    }
+
+    // Disegna connessioni (pesi)
+    strokeWeight(1);
+    for (let i = 0; i < nodesPos.length - 1; i++) {
+        for (let n1 of nodesPos[i]) {
+            for (let n2 of nodesPos[i+1]) {
+                // Durante il training i pesi "brillano"
+                if (!isClassifying && iterations > 0) {
+                    stroke(100, 255, 100, random(50, 150));
+                } else {
+                    stroke(100, 100, 100, 80);
+                }
+                line(n1.x, n1.y, n2.x, n2.y);
+            }
+        }
+    }
+
+    // Disegna nodi
+    for (let i = 0; i < nodesPos.length; i++) {
+        for (let j = 0; j < nodesPos[i].length; j++) {
+            let n = nodesPos[i][j];
+            
+            // Colora l'output in base alla predizione
+            fill(40); stroke(200);
+            if (isClassifying && i === nodesPos.length - 1) {
+                if (j === 0 && currentLabel === "Rosso") fill(233, 30, 99, currentConf * 255);
+                if (j === 1 && currentLabel === "Azzurro") fill(0, 188, 212, currentConf * 255);
+            }
+            ellipse(n.x, n.y, 20, 20);
+        }
+    }
+}
+
+function setupButtons() {
+    document.getElementById('btnA').onclick = () => {
+        classifier.addImage('Rosso');
+        document.getElementById('cA').innerText = ++countA;
+    };
+    document.getElementById('btnB').onclick = () => {
+        classifier.addImage('Azzurro');
+        document.getElementById('cB').innerText = ++countB;
+    };
+    document.getElementById('trainBtn').onclick = () => {
+        isClassifying = false; iterations = 0;
+        document.getElementById('progress-container').style.display = 'block';
+        classifier.train((loss) => {
+            if (loss === null) {
+                isClassifying = true;
+                classifier.classify(gotResults);
+            } else {
+                iterations++;
+                // Fix contatore: stimiamo le epoche basandoci sulle chiamate
+                let estimatedEpoch = Math.min(Math.ceil(iterations / 4), TOTAL_EPOCHS);
+                document.getElementById('epoch-txt').innerText = `Epoca: ${estimatedEpoch} / ${TOTAL_EPOCHS}`;
+                document.getElementById('progress-bar').style.width = (estimatedEpoch/TOTAL_EPOCHS*100) + "%";
+            }
+        });
+    };
+    document.getElementById('resetBtn').onclick = () => location.reload();
+}
+
+function gotResults(err, results) {
+    if (err || !isClassifying) return;
+    currentLabel = results[0].label;
+    currentConf = results[0].confidence;
+    document.getElementById('result').innerText = `${currentLabel} (${(currentConf*100).toFixed(1)}%)`;
+    document.getElementById('result').style.background = (currentLabel === 'Rosso') ? '#e91e63' : '#00bcd4';
+    classifier.classify(gotResults);
+}
+</script>
+</body>
+</html>
