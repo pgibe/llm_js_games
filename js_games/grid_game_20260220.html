@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gioco Griglia - TELETRASPORTO FISSO</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+        #gameContainer {
+            text-align: center;
+        }
+        canvas {
+            border: 2px solid #333;
+            background-color: #222;
+            cursor: pointer;
+        }
+        #info {
+            margin-top: 10px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="600" height="600"></canvas>
+        <div id="info">Frecce per muoverti! Cyan = teletrasporto casuale</div>
+    </div>
+
+    <script>
+		/**
+		 * PErplexity+pg-20260220 - Esempio per Don Bosco
+		 */
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const CELL_SIZE = 20;
+        const GRID_WIDTH = 30;
+        const GRID_HEIGHT = 30;
+        const MOVE_STEP = 3;
+
+        let grid = [];
+        let player = { x: 0, y: 0 };
+        let startPos = { x: 0, y: 0 };
+        let endPos = { x: 0, y: 0 };
+        let gameState = 'playing';
+
+        function newGame() {
+            grid = [];
+            gameState = 'playing';
+            
+            // Griglia vuota
+            for (let y = 0; y < GRID_HEIGHT; y++) {
+                grid[y] = [];
+                for (let x = 0; x < GRID_WIDTH; x++) {
+                    grid[y][x] = 0;
+                }
+            }
+
+            // Inizio SINISTRA + Fine DESTRA
+            startPos = { 
+                x: 2 + Math.floor(Math.random() * 8),  
+                y: 2 + Math.floor(Math.random() * (GRID_HEIGHT - 4)) 
+            };
+            endPos = { 
+                x: 20 + Math.floor(Math.random() * 8),  
+                y: 2 + Math.floor(Math.random() * (GRID_HEIGHT - 4)) 
+            };
+
+            player.x = startPos.x;
+            player.y = startPos.y;
+
+            // 20-25 muri SICURI
+            const numWalls = 20 + Math.floor(Math.random() * 5);
+            for (let i = 0; i < numWalls; i++) {
+                generateSafeWall();
+            }
+
+            // Muro cyan al CENTRO
+            generateTeleportWall();
+
+            // Marca inizio/fine
+            grid[startPos.y][startPos.x] = 1;
+            grid[endPos.y][endPos.x] = 2;
+        }
+
+        function generateSafeWall() {
+            const length = 1 + Math.floor(Math.random() * 6);
+            const isHorizontal = Math.random() > 0.5;
+            let attempts = 0;
+
+            while (attempts < 20) {
+                attempts++;
+                let x, y;
+
+                if (isHorizontal) {
+                    x = 3 + Math.floor(Math.random() * (GRID_WIDTH - length - 6));
+                    y = 2 + Math.floor(Math.random() * (GRID_HEIGHT - 4));
+                    if (checkWallSafe(x, y, length, true)) {
+                        placeWall(x, y, length, true, 3);
+                        return;
+                    }
+                } else {
+                    x = 2 + Math.floor(Math.random() * (GRID_WIDTH - 4));
+                    y = 3 + Math.floor(Math.random() * (GRID_HEIGHT - length - 6));
+                    if (checkWallSafe(x, y, length, false)) {
+                        placeWall(x, y, length, false, 3);
+                        return;
+                    }
+                }
+            }
+        }
+
+        function checkWallSafe(x, y, length, horizontal) {
+            if (horizontal) {
+                for (let i = 0; i < length; i++) {
+                    const cx = x + i;
+                    const cy = y;
+                    if (cx < 2 || cx >= GRID_WIDTH-2 || cy < 2 || cy >= GRID_HEIGHT-2 ||
+                        grid[cy][cx] !== 0 ||
+                        (cx === startPos.x && cy === startPos.y) ||
+                        (cx === endPos.x && cy === endPos.y)) {
+                        return false;
+                    }
+                }
+            } else {
+                for (let i = 0; i < length; i++) {
+                    const cx = x;
+                    const cy = y + i;
+                    if (cx < 2 || cx >= GRID_WIDTH-2 || cy < 2 || cy >= GRID_HEIGHT-2 ||
+                        grid[cy][cx] !== 0 ||
+                        (cx === startPos.x && cy === startPos.y) ||
+                        (cx === endPos.x && cy === endPos.y)) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        function placeWall(x, y, length, horizontal, type) {
+            if (horizontal) {
+                for (let i = 0; i < length; i++) {
+                    grid[y][x + i] = type;
+                }
+            } else {
+                for (let i = 0; i < length; i++) {
+                    grid[y + i][x] = type;
+                }
+            }
+        }
+
+        function generateTeleportWall() {
+            // Muro cyan SEMPRE al centro
+            const centerX = 13;
+            const centerY = 13;
+            const length = 4;
+            const isHorizontal = Math.random() > 0.5;
+            
+            let x = centerX - 2;
+            let y = centerY;
+
+            if (!isHorizontal) {
+                x = centerX;
+                y = centerY - 2;
+            }
+
+            placeWall(x, y, length, isHorizontal, 4);
+        }
+
+        // ✅ CORRETTO: CONTROLLO SEMPRE sulla griglia ATTUALE
+        function checkCollision(newX, newY) {
+            const gridX = Math.floor(newX);
+            const gridY = Math.floor(newY);
+            
+			// Se oltrepassa i muri periferici può morire oppure teletrasportarsi...
+            if (gridX < 0 || gridX >= GRID_WIDTH || gridY < 0 || gridY >= GRID_HEIGHT) {
+				if (Math.random() < 0.5) {
+					return 'wall';
+				}
+				else  {
+					return 'teleport';
+				}
+            }
+            
+			const cellType = grid[gridY][gridX];
+			if (cellType === 3) return 'wall';
+			if (cellType === 4) return 'teleport';  // ✅ SEMPRE teletrasporto!
+            return 'ok';
+        }
+
+        function teleportPlayer() {
+            // Teletrasporto intelligente
+            if (Math.random() < 0.7) {
+                player.x = 20 + Math.floor(Math.random() * 8);
+            } else {
+                player.x = 2 + Math.floor(Math.random() * 10);
+            }
+            player.y = 5 + Math.floor(Math.random() * 20);
+        }
+
+        function movePlayer(dx, dy) {
+            if (gameState !== 'playing') return;
+
+			// Controlliamo tutto il percorso per eccezioni
+			for(i=1;i<=MOVE_STEP;i++) {
+				newX = player.x + dx * i;
+				newY = player.y + dy * i;
+
+				collision = checkCollision(newX, newY);
+			
+				if (collision === 'wall') {
+					gameState = 'gameOver';
+					return;
+				} else if (collision === 'teleport') {
+					teleportPlayer();
+					return;
+				}
+			}
+			// Se è arrivato qui, la cella di destinazione è libera
+			player.x = newX;
+			player.y = newY;
+
+			if (Math.floor(player.x) === endPos.x && Math.floor(player.y) === endPos.y) {
+				gameState = 'won';
+			}
+        }
+
+        document.addEventListener('keydown', (e) => {
+            switch(e.key) {
+                case 'ArrowUp': movePlayer(0, -1); break;
+                case 'ArrowDown': movePlayer(0, 1); break;
+                case 'ArrowLeft': movePlayer(-1, 0); break;
+                case 'ArrowRight': movePlayer(1, 0); break;
+            }
+            draw();
+        });
+
+        function draw() {
+            ctx.fillStyle = '#222';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // ✅ Disegna TUTTI gli elementi
+            for (let y = 0; y < GRID_HEIGHT; y++) {
+                for (let x = 0; x < GRID_WIDTH; x++) {
+                    const px = x * CELL_SIZE;
+                    const py = y * CELL_SIZE;
+
+                    if (grid[y][x] === 1) ctx.fillStyle = '#ff0';      // Giallo
+                    else if (grid[y][x] === 2) ctx.fillStyle = '#0f0'; // Verde  
+                    else if (grid[y][x] === 3) ctx.fillStyle = '#fff'; // Bianco
+                    else if (grid[y][x] === 4) ctx.fillStyle = '#0ff'; // Cyan
+                    else continue;
+
+                    ctx.fillRect(px, py, CELL_SIZE, CELL_SIZE);
+                }
+            }
+
+            if (gameState === 'playing') {
+                ctx.fillStyle = '#00f';
+                ctx.fillRect(player.x * CELL_SIZE, player.y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+            }
+
+            ctx.fillStyle = '#fff';
+            ctx.font = '24px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            if (gameState === 'gameOver') {
+                ctx.fillText('HAI PERSO!', canvas.width/2, canvas.height/2 - 30);
+                ctx.font = '20px Arial';
+                ctx.fillText('F5 per ricominciare', canvas.width/2, canvas.height/2 + 20);
+            } else if (gameState === 'won') {
+                ctx.fillText('HAI VINTO!', canvas.width/2, canvas.height/2 - 30);
+                ctx.font = '20px Arial';
+                ctx.fillText('F5 per ricominciare', canvas.width/2, canvas.height/2 + 20);
+            }
+        }
+
+        newGame();
+        draw();
+    </script>
+</body>
+</html>
